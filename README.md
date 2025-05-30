@@ -1,6 +1,6 @@
 # Audio UI JEPA
 
-This is the repository that contains source code for the [Audio UI JEPA website](https://nerfies.github.io).
+This is the repository that contains source code for the [Audio UI JEPA website](https://theguywithouth.github.io/Audio-UI-JEPA-Website/).
 
 If you find it useful for your work please cite:
 ```
