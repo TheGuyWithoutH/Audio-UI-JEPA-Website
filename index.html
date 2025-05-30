@@ -185,9 +185,14 @@
           </p>
           <p>
             Apple's UI-JEPA model <a href="#ref4">[4]</a> takes an important step in this direction by predicting intent from UI video sequences using a lightweight, self-supervised architecture based on a Vision Transformer (ViT) <a href="#ref5">[5]</a>. However, its reliance solely on visual data excludes valuable contextual cues often available in the surrounding audio—such as voice commands or background sounds—that can disambiguate user behavior. For instance, hearing a user say "Let's book a hotel" while they navigate through a travel app provides clear intent, even if the visual interaction is ambiguous.
+          </p>          <p>
+            This project proposes a bimodal extension of UI-JEPA by incorporating an audio modality, forming a system we refer to as <em>Audio-UI-JEPA</em>. Our method fuses UI video sequences and corresponding audio input to predict user intent more robustly, using a JEPA-trained ViT encoder and a fine-tuned Phi-3 LLM <a href="#ref6">[6]</a>. The addition of audio is designed to address two research questions: (1) How can combining UI video and audio enhance intent prediction accuracy? and (2) What advantages does this bimodal system offer over a vision-only model in terms of performance and usability?
           </p>
           <p>
-            This project proposes a bimodal extension of UI-JEPA by incorporating an audio modality, forming a system we refer to as <em>Audio-UI-JEPA</em>. Our method fuses UI video sequences and corresponding audio input to predict user intent more robustly, using a JEPA-trained ViT encoder and a fine-tuned Phi-3 LLM <a href="#ref6">[6]</a>. The addition of audio is designed to address two research questions: (1) How can combining UI video and audio enhance intent prediction accuracy? and (2) What advantages does this bimodal system offer over a vision-only model in terms of performance and usability?
+            To train and evaluate our approach, we use the Intent in the Tame (IIT) and Intent in the Wild (IIW) datasets <a href="#ref4">[4]</a>. Audio annotations were created using a custom-built annotation tool to simulate natural speech aligned with user behavior. Multi-modal fusion is achieved using ImageBind <a href="#ref7">[7]</a>, a pretrained model capable of aligning audio and visual signals in a shared embedding space. The final embeddings are then decoded by a language model to generate user intent.
+          </p>
+          <p>
+            The broader goal of this work is to lay the foundation for an AI-native UI architecture that supports natural, multimodal interaction while remaining efficient enough for on-device deployment. This direction not only improves accessibility and personalization but also opens the door to a new class of low-latency, privacy-preserving intelligent systems that can adapt fluidly to the user's context and environment.
           </p>
         </div>
       </div>
@@ -215,7 +220,7 @@
           </p>
             <h4 class="title is-5">ImageBind</h4>
           <p>
-            ImageBind <a href="#ref7">[7]</a> is a multimodal embedding model developed by Meta AI that enables joint representation learning across six modalities, including images and audio. It achieves this by aligning different modality inputs in a shared embedding space, making it a powerful foundation for cross-modal retrieval and fusion tasks. We leverage ImageBind in Audio-UI-JEPA to bridge visual and audio inputs, producing aligned embeddings that can be decoded into natural language intent using a language model.
+            ImageBind <a href="#ref7">[7]</a> is a multimodal embedding model developed by Meta AI that enables joint representation learning across six modalities, including images and audio. It achieves this by aligning different modality inputs in a shared embedding space, making it a powerful foundation for cross-modal retrieval and fusion tasks. We leverage ImageBind in Audio-UI-JEPA to bridge visual and audio inputs, producing aligned embeddings that can be decoded into natural language intent using a language model. This approach circumvents the need for modality-specific decoders, allowing us to build a lightweight, extensible multimodal system.
           </p>
         </div>
       </div>
@@ -230,24 +235,69 @@
       <div class="column is-four-fifths">
         <h2 class="title is-3">Method</h2>
         <div class="content has-text-justified">
-          
-          <h4 class="title is-5">UI-JEPA Reproduction</h4>
+            <h4 class="title is-5">UI-JEPA Reproduction</h4>
           <p>
-            To ensure reproducibility and a consistent experimental baseline, we first re-implemented the UI-JEPA model as described in the original paper. This step was critical for two reasons: (1) validating our ability to match the original model's performance, and (2) enabling us to later isolate the effect of introducing audio as an additional modality.
+            To ensure reproducibility and a consistent experimental baseline, we first re-implemented the UI-JEPA model as described in the original paper <a href="#ref4">[4]</a>. This step was critical for two reasons: (1) validating our ability to match the original model's performance, and (2) enabling us to later isolate the effect of introducing audio as an additional modality. Since the same large language model (LLM) training will be applied to the audio-augmented version, replicating the original setup ensures that any observed performance gain can be directly attributed to the addition of audio.
           </p>
           <p>
-            After obtaining the IIW (Intent In the Wild) and IIT (Intent In the Tame) datasets from the Apple team, we reproduced the JEPA tuning process following the methodology outlined in the original work. These datasets consist of .mov video files of varying lengths. To standardize input, each video was sampled into 16 evenly spaced frames at a resolution of 384×384 pixels.
+            After obtaining the IIW (Intent In the Wild) and IIT (Intent In the Tame) datasets from the Apple team, we reproduced the JEPA tuning process following the methodology outlined in the original work. These datasets consist of <code>.mov</code> video files of varying lengths. To standardize input, each video was sampled into 16 evenly spaced frames at a resolution of 384×384 pixels. To preserve temporal structure, frames were grouped into tubelets—each consisting of two consecutive frames—allowing the model to better learn temporal dependencies.
+          </p>
+          <p>
+            As in the paper, masking was applied as follows: 6 out of 8 tubelets were fully masked, while the remaining two were subjected to partial masking using 2 long-range spatial masks (scale 0.7) and 8 short-range spatial masks (scale 0.15). This combination of temporal and spatial masking is designed to help the model learn dynamic UI behavior more effectively.
+          </p>
+          <p>
+            Masked tokens were excluded from the input to the x-encoder but included in the input to the y-encoder, alongside the unmasked tokens. The predictor module receives the output embeddings from the x-encoder, concatenated with learnable mask tokens enriched with 3D spatio-temporal positional encodings. Its task is to predict the corresponding embeddings generated by the y-encoder for the masked positions. The y-encoder is initialized as a deep copy of the x-encoder and is updated using an exponential moving average (EMA) of the x-encoder weights.
           </p>
           <p>
             Since the original paper did not specify the backbone model used, we selected <code>google/vit-base-patch16-384</code> <a href="#ref8">[8]</a>, a Vision Transformer (ViT) pretrained on ImageNet-21k and fine-tuned on ImageNet-1k at 384×384 resolution. This model, with 86 million parameters, was chosen to align with the hardware constraints stated in the paper—specifically, the requirement for mobile device compatibility.
           </p>
-          
-          <h4 class="title is-5">Audio-UI-JEPA Extension</h4>
           <p>
-            To extend the model with audio data, we began by annotating the IIT dataset. This dataset includes 682 videos in the training split, 187 videos for few-shot evaluation, and 45 videos for zero-shot evaluation. We developed a custom UI annotation tool that enabled us to preview each video, record corresponding audio, and review it immediately to ensure alignment with the visual content.
+            We trained the x-encoder, y-encoder, and predictor jointly on both the IIT and IIW datasets, ensuring consistency with the training procedure described in the original work.
           </p>
           <p>
-            We opted for a joint embedding approach, leveraging <code>nielsr/imagebind-huge</code> <a href="#ref7">[7]</a>, a model trained to learn joint embeddings across six modalities: image, text, audio, depth, thermal, and IMU data. ImageBind processes audio by converting it into mel spectrograms, which allows us to apply the same masking and temporal preprocessing used in UI-JEPA—dividing inputs into 16 evenly spaced segments and applying the same masking strategy.
+            Regarding LLM fine-tuning, the original paper indicated that the Phi-3 model was used as the base. Accordingly, we selected the <code>microsoft/phi-3-mini-4k-instruct</code> variant <a href="#ref9">[9]</a>, consistent with the hardware constraints previously mentioned. We applied 4-bit quantization and integrated LoRA layers using the same hyperparameters as specified in the paper.
+          </p>
+          <p>
+            For training, we focused on the IIT dataset, which contains approximately 900 videos—an amount that was realistically annotatable with audio within our timeframe. Each IIT sample includes OCR output from the last frame, which we used alongside the video embeddings generated by our trained x-encoder. These two modalities were passed as input to the LLM during training.
+          </p>
+          <p>
+            Special separator tokens, such as <code>&lt;|placeholder1|&gt;</code>, were used following the paper's format, serving as <code>&lt;sep&gt;</code> tokens. The input formatting was as follows:
+          </p>
+          <div style="margin-left: 20px;">
+            <p><strong>Training phase:</strong></p>
+            <ul>
+              <li>Input: <code>[VIDEO] &lt;sep&gt; [OCR] &lt;sep&gt; [The user books a hotel] &lt;end&gt;</code></li>
+              <li>Labels: <code>[-100] [-100] [-100] [-100] [The user books a hotel] [&lt;end&gt;]</code></li>
+              <li>Loss: Computed only on the intent portion</li>
+            </ul>
+            <p><strong>Inference phase:</strong></p>
+            <ul>
+              <li>Input: <code>[VIDEO] &lt;sep&gt; [OCR] &lt;sep&gt;</code></li>
+              <li>Output: <code>[The user books a hotel] &lt;end&gt;</code> (generated by the model)</li>
+            </ul>
+          </div>
+          <p>
+            We masked out the <code>[VIDEO]</code> and <code>[OCR]</code> segments using a label of <code>-100</code> to ensure that the model learned in a supervised manner to generate only the intent. Furthermore, we applied positional embeddings exclusively to the intent tokens, as adding them to the video embeddings was shown in the original paper to degrade performance.
+          </p>
+            <h4 class="title is-5">Audio-UI-JEPA Extension</h4>
+          <p>
+            To extend the model with audio data, we began by annotating the IIT dataset. This dataset includes 682 videos in the training split, 187 videos for few-shot evaluation, and 45 videos for zero-shot evaluation. In the few-shot setting, the evaluation videos feature applications that were also present in the training set. In contrast, the zero-shot split includes unseen applications but covers the same ten intent categories: <em>"edit contact," "call contact," "create contact," "message contact," "create reminder," "create note," "create timer," "create alarm," "watch stock," and "intent unclear."</em>
+          </p>
+          <p>
+            We developed a custom UI annotation tool that enabled us to preview each video, record corresponding audio, and review it immediately to ensure alignment with the visual content. The goal was to produce natural, conversational audio—e.g., "I want to send a message"—that reflects how a real user might express their intent.
+          </p>
+          <p>
+            Once annotation was complete, we evaluated two approaches for integrating the audio data into our model:
+          </p>
+          <ol>
+            <li><strong>Two-stream architecture:</strong> Use our previously trained V-JEPA model for video embeddings <a href="#ref2">[2]</a>, train a new A-JEPA model for audio embeddings <a href="#ref11">[11]</a>, and then concatenate the outputs. The combined embeddings would be passed through an MLP before being fed to the LLM for intent generation.</li>
+            <li><strong>Joint embedding model:</strong> Use a pretrained multi-modal model capable of producing aligned embeddings across modalities, and feed both video and audio embeddings directly to the LLM.</li>
+          </ol>
+          <p>
+            We opted for the second approach, leveraging <code>nielsr/imagebind-huge</code> <a href="#ref7">[7]</a>, a model trained to learn joint embeddings across six modalities: image, text, audio, depth, thermal, and IMU data. ImageBind processes audio by converting it into mel spectrograms, which allows us to apply the same masking and temporal preprocessing used in UI-JEPA—dividing inputs into 16 evenly spaced segments and applying the same masking strategy.
+          </p>
+          <p>
+            We trained our model on the audio-annotated dataset using the standard JEPA training loop for x-encoder, y-encoder, and predictor <a href="#ref3">[3]</a>. After training, the x-encoder was used to extract multi-modal embeddings (video + audio), which were then passed to the same LLM used in UI-JEPA. As before, no positional embeddings were applied to the video or audio inputs, and during training, they were masked with labels of <code>-100</code>. The loss was computed solely on the intent output, allowing the model to focus exclusively on learning intent generation.
           </p>
         </div>
       </div>
@@ -279,6 +329,9 @@
           </p>
           <p>
             To provide an aggregated view of model performance, the paper introduced the <strong>Intent Similarity</strong> score, computed by averaging the normalized values of the four metrics (SBERT, ROUGE-1, ROUGE-2, ROUGE-L), each rescaled to the range [0, 1]. This composite score captures both semantic alignment and textual overlap between predicted and true intents.
+          </p>
+          <p>
+            We evaluated our model against UI-JEPA in both zero-shot and few-shot settings.
           </p>
           
           <h4 class="title is-5">Zero-shot Evaluation</h4>
@@ -321,7 +374,7 @@
             </table>
           </div>
           <p>
-            In the zero-shot setting—where the model is evaluated on apps it has never seen during training—our model significantly outperforms UI-JEPA across all metrics. This improvement demonstrates that incorporating audio leads to more robust generalization. The large gain in SBERT (+8.5%) suggests our model better captures the semantic meaning of user intents.
+            In the zero-shot setting—where the model is evaluated on apps it has never seen during training—our model significantly outperforms UI-JEPA across all metrics. This improvement demonstrates that incorporating audio leads to more robust generalization. The large gain in SBERT (+8.5%) suggests our model better captures the semantic meaning of user intents, while the increase in ROUGE scores indicates better lexical alignment as well.
           </p>
           
           <h4 class="title is-5">Few-shot Evaluation</h4>
@@ -364,7 +417,10 @@
             </table>
           </div>
           <p>
-            In the few-shot evaluation—where the apps in test data overlap with those in training—our model underperforms compared to UI-JEPA. This drop could be due to UI-JEPA overfitting to the training distribution. However, our model achieves strong gains in zero-shot settings, proving its strength in generalization, which is crucial for deployment in real-world, unseen scenarios.
+            In the few-shot evaluation—where the apps in test data overlap with those in training—our model underperforms compared to UI-JEPA. This drop could be due to UI-JEPA overfitting to the training distribution.
+          </p>
+          <p>
+            Our reproduced model achieves strong gains in zero-shot settings, proving its strength in generalization, which is crucial for deployment in real-world, unseen scenarios. While performance decreases in the few-shot setting, the results remain competitive, which allows us to consider it as a strong baseline and start evaluating our new multi-modal jepa.
           </p>
         </div>
       </div>
@@ -377,8 +433,7 @@
   <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <div class="column is-four-fifths">
-        <h2 class="title is-3">Conclusion and Limitations</h2>
-        <div class="content has-text-justified">
+        <h2 class="title is-3">Conclusion and Limitations</h2>        <div class="content has-text-justified">
           <p>
             In this work, we successfully reproduced Apple's UI-JEPA framework as described in their paper and extended it by introducing the audio modality. Our experiments demonstrate that this multimodal enhancement leads to significant improvements, particularly in the zero-shot setting. To the best of our knowledge, this represents the first attempt at building a multimodal JEPA-style model combining video and audio for intent prediction.
           </p>
@@ -386,11 +441,15 @@
             However, our approach comes with notable limitations. First, our long-term goal is to deploy the model on smartphones, yet our current reliance on ImageBind may not align with the compute and memory constraints of mobile devices. Future work should explore more lightweight alternatives or model distillation techniques.
           </p>
           <p>
-            Second, the quality of the training data is suboptimal. The IIT dataset includes user behaviors that do not always reflect realistic or purposeful interaction sequences. Furthermore, all audio annotations were created by the authors using a custom UI tool. Despite efforts to ensure objectivity and naturalness, annotator bias cannot be ruled out.
+            Second, the quality of the training data is suboptimal. The IIT dataset includes user behaviors that do not always reflect realistic or purposeful interaction sequences—e.g., starting to write a message but never finishing it, switching to unrelated apps without clear intent, or opening a settings menu without any follow-up action. These patterns make the annotation process more ambiguous and may confuse the model.
           </p>
           <p>
-            To address these issues, future work should focus on collecting a large-scale, diverse dataset of real UI interactions with corresponding audio. Such a dataset would enable training a more robust and generalizable model. Further optimization is also needed for on-device inference, especially if deployment on smartphones is to be achieved.
-          </p>        </div>
+            Furthermore, all audio annotations were created by the authors of this paper using a custom UI tool. Despite efforts to ensure objectivity and naturalness, annotator bias cannot be ruled out. Ideally, audio data should come from real users to better reflect genuine speech patterns and intent expression. Additionally, the dataset only contains ten intent categories, which is insufficient to represent the full diversity of user behaviors in real-world applications.
+          </p>
+          <p>
+            To address these issues, future work should focus on collecting a large-scale, diverse dataset of real UI interactions with corresponding audio. Such a dataset would enable training a more robust and generalizable model. Further optimization is also needed for on-device inference, especially if deployment on smartphones is to be achieved. Finally, incorporating additional modalities such as IMU (inertial measurement unit) data—e.g., accelerometer and gyroscope signals—could provide valuable context (e.g., walking, driving) to further improve intent recognition.
+          </p>
+        </div>
       </div>
     </div>  </div>
 </section>
@@ -470,12 +529,13 @@
 
 
 <section class="section" id="BibTeX">  <div class="container is-max-desktop content">    <h2 class="title">BibTeX</h2>
-    <pre><code>@article{anejjar2025audio,
-  author    = {Anejjar, Sara and Balducci, Ugo},
-  title     = {Re-creating UI-JEPA with Audio Modality for Enhanced User Intent Understanding},
-  journal   = {CS-503 Final Project Report},
-  year      = {2025},
-  institution = {EPFL}
+    <pre><code>@misc{audio-ui-jepa,
+  author = {Anejjar, Balducci},
+  title = {Audio-UI-JEPA: A Multimodal Approach for Understanding User Interfaces},
+  year = {2025},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/your-username/Audio-UI-JEPA}}
 }</code></pre>
   </div>
 </section>
